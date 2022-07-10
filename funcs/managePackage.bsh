@@ -1,0 +1,104 @@
+#!/bin/bash
+# -------------------------------------------------
+#
+#     managePackage.bsh - Multi-package-manager
+#		wrapper designed to standardize output,
+#		installation, and removal of Linux packages
+#
+#             Written: James Varoutsos
+#       Date: 1-Jun-2022        Version: 1.0
+#
+# -------------------------------------------------
+
+#
+# Multi-package, multi-distro installer
+#
+function installPackage {
+	enforceRoot		# Unit files are root-only
+	if checkDistribution "centos|rocky"; then
+		for pkg in $@; do
+			# This really the most reliable test for package install -- What the fuck?
+			if echo "$(rpm -qa $pkg 2> /dev/null)" | grep -q "$pkg"; then
+				echo -e "${wn} Package '$pkg' already installed"
+			else
+				dnf -qy install "$pkg" &> /dev/null
+
+				# It's still bad if done twice
+				if echo "$(rpm -qa $pkg 2> /dev/null)" | grep -q "$pkg"; then
+					echo -e "${gd} Package '$pkg' was installed succesfully"
+				else
+					echo -e "${er} Package '$pkg' could not be installed"
+					return 1
+				fi
+			fi
+		done
+	elif checkDistribution "alpine"; then
+		for pkg in $@; do
+			apk -e info ${pkg} &> /dev/null && { echo -e "${wn} Package '$pkg' already installed"; continue; }
+
+			apk -q add ${pkg} &> /dev/null || \
+				{ echo -e "${er} Install '$pkg' failed (Exit code: ${?})"; continue; }
+
+			if pkgInfo=$(apk -d info ${pkg}); then
+				pkgVer=$(echo "$pkgInfo" | head -n1 | grep -oE "(\-?).*\s");	# <-- This requires adjustment
+				echo -e "${gd} Package '$pkg' was successfully installed (\033[1;36m${pkgVer#*-}\033[0m)"
+			else
+				# Remediate this later - Better error code?
+				echo -e "${er} Install '$pkg' failed - Unknown error"
+			fi
+		done
+	else
+		echo -e "${er} Not running a compatible distro!"
+		return 2
+	fi
+	return 0
+}
+alias installPackages="installPackage"
+alias instPkgs="installPackage"
+alias instPkg="installPackage"
+
+#
+# Multi-package, multi-distro removal
+#
+function removePackage {
+	enforceRoot		# Unit files are root-only
+	if checkDistro "centos|rocky"; then
+		for pkg in $@; do
+			# This really the most reliable test for package install -- What the fuck?
+			if echo "$(rpm -qa $pkg 2> /dev/null)" | grep -q "$pkg"; then
+				echo -e "${wn} Package '$pkg' already installed"
+			else
+				dnf -qy install "$pkg" &> /dev/null
+
+				# It's still bad if done twice
+				if echo "$(rpm -qa $pkg 2> /dev/null)" | grep -q "$pkg"; then
+					echo -e "${gd} Package '$pkg' was installed succesfully"
+				else
+					echo -e "${er} Package '$pkg' could not be installed"
+					return 1
+				fi
+			fi
+		done
+	elif checkDistribution "alpine"; then
+		for pkg in $@; do
+			apk -e info ${pkg} &> /dev/null || { echo -e "${wn} Package '$pkg' is not installed"; continue; }
+
+			apk -q del ${pkg} &> /dev/null || \
+				{ echo -e "${er} Removal of '$pkg' failed (Exit code: ${?})"; continue; }
+
+			if [[ -z "$(apk -e info ${pkg})" ]]; then
+				echo -e "${gd} Package '$pkg' was successfully removed"
+			else
+				# Remediate this later - Better error code?
+				echo -e "${er} Removal of '$pkg' failed - Unknown error"
+			fi
+		done
+	else
+		echo -e "${er} Not running a compatible distro!"
+		return 2
+	fi
+	return 0
+}
+alias removePackages="removePackage"
+alias rmPkgs="removePackage"
+alias rmPkg="removePackage"

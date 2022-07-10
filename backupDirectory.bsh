@@ -1,0 +1,206 @@
+#!/bin/bash
+# -------------------------------------------------
+#
+#      backupDirectory.bsh - Really simple script
+#      for compressing + backing-up directories.
+#
+#             Written: James Varoutsos
+#       Date: 29-Jan-2021        Version: 1.0
+#
+#	1.0	- Complete clean-up / Refactor
+#
+# -------------------------------------------------
+
+source scriptFunctions || { echo -e "\033[1;31m[ERROR]\033[0m Cannot find shared functions file" return 1; }
+enforceRoot			# Required for mount/umount
+
+#
+#	Parameter handling
+#
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --name=*)
+        bName="${1#*=}"
+        ;;
+        --host=*)
+        bHost="${1#*=}"
+        ;;
+        --target=*)
+        bDestination="${1#*=}"
+        ;;
+        --directory=*)
+        bSource="${1#*=}"
+        ;;
+        --keep=*)
+        bKeepPrevious="${1#*=}"
+        ;;
+        --container=*)
+        bContainer="${1#*=}"
+        ;;
+        --archive-type=*)
+        bTarType="${1#*=}"
+        ;;
+        *)
+        echo -e "Invalid argument ($1) - Exiting"
+        exit
+    esac
+    shift
+done
+
+# Parameter validation
+[[ -z "$bDestination" ]] && { echo -e "No backup destination set"; return 1; }
+[[ -z "$bSource" ]] && { echo -e "No source directory set"; return 1; }
+[[ ! -d "$bSource" ]] && { echo -e "${er} Source directory ($bSource) not readable"; return 1; }
+
+# Setting defaults
+[[ -z "$bName" ]] && { echo -e "No job name set - Defaulting to bkp-temp"; bName="bkp-temp"; }
+[[ -z "$bTarType" ]] && { echo -e "Tarball compress type not defined - Defaulting to GZIP"; }
+[[ -z "$bHost" ]] && { echo -e "No remote backup host defined"; return 1; }
+[[ -z "$bKeepPrevious" ]] && { echo -e "Previous backup count not defined - Defaulting to 5"; bKeepPrevious=5; }
+# [[ -z "$bMode" ]] && { echo -e "No mode defined - Using default NFS backup"; }
+#		To be enabled when addition copy (non-NFS) modes are set-up
+#
+
+#
+#	Docker-specific functions
+#
+# Start the specified Docker container
+function startContainer {
+	if [ -n "$1" ]; then
+		docker start "$bContainer" 2>&1 || { echo -e "${er} Cannot start $bContainer"; return 6; }
+		# If the above is successful
+		echo -e "Docker image $bContainer restarted successfully"
+	fi
+}
+
+# Stop the specified Docker container
+function stopContainer {
+	if [ -n "$1" ]; then
+		docker stop "$bContainer" 2>&1 || { echo -e "${er} Cannot stop $bContainer - Aborting backup"; return 5; }
+		# If the above is successful
+		echo -e "Docker image $bContainer stopped"
+	fi
+}
+
+#
+#	NFS-mode functions
+#
+# Mount & validate the remote NFS drive
+function nfsMount {
+	[[ ! -d /mount ]] && mkdir /mount
+	[[ -d /mount/"$bName" ]] && { echo -e "${nt} /mount/$bName already exists - Removing.";  nfsUmount; }
+
+	mkdir /mount/"$bName" || { echo -e "${er} Cannot make the required mount-point"; return 1; }
+	mount "$bHost":"$bDestination" /mount/"$bName" 2>&1 || \
+		{ echo -e "Mount operation failed (Code: $?)"; rm -rf /mount/"$bName"; return 1; }
+
+	[[ ! -d "/mount/$bName" ]] && \
+		{ echo -e "${er} Cannot find backup directory (/mount/$bName) - exiting."; return 2; }
+
+	echo -e "${gd} Succesful mount - setting new target location"
+	return 0
+}
+
+# Umount and validate the NFS mountpoint
+function nfsUmount {
+	cd "$bSource" || { echo -e "${er} Unable to change to source directory!"; return 1; }
+	if umount /mount/"$bName" 2>&1; then
+		echo -e "${gd} Succesful umount: Cleaning-up mount point"
+		rm -rf "$bDestination"
+	elif [ $? -eq 16 ]; then
+		echo -e "${wn} First unmount failed, waiting 10 seconds then forcing it"
+		sleep 10;
+		if umount -f /mount/"$bName" 2>&1; then
+			echo -e "${gd} Succesful forced umount: Cleaning-up mount point"
+			rm -rf "$bDestination"
+		else
+			echo -e "${er} Unsuccessful umount: Cleaning-up & exiting"
+			echo -e "${nt} Manually umount $bDestination before running again!"
+			return 2;
+		fi
+	else
+		echo -e "${er} Unsuccessful umount: Cleaning-up & exiting"
+		echo -e "${nt} Manually umount $bDestination before running again!"
+		return 2;
+	fi
+}
+
+# Perform an NFS-specific copy & validate
+function nfsCopy {
+	if cp "$archiveName" /mount/"$bName" 2>&1; then
+		echo -e "${gd} Successfully archived target!"
+		rm -f "$archiveName" || { echo -e "${wn} Unable to clean-up local archive ($archiveName)"; }
+		echo "Cleaned-up temporary local archive"
+	else
+		echo -e "${er} Unable to copy archive"
+		return 1;
+	fi
+	return 0;
+}
+
+# Clean-up previous back-ups
+function nfsCleanUp {
+	cd $bDestination
+	echo -e "${nt} Number of previous backups found: $(ls -1q $bDestination/$bName* | wc -l)"
+	if [ $(ls -1q $bDestination | wc -l) -ge $bKeepPrevious ]; then
+		backupDiff=$(($(ls -1q $bDestination | wc -l)-$bKeepPrevious))
+		echo " Deleting extra $backupDiff back-ups"
+		ls -tp $bDestination/$bName*  | tail -n +$((bKeepPrevious+1)) | xargs -d '\n' -r rm -f
+	else
+		echo "Not enough backed-up archives yet to clean-up!"
+	fi
+	return 0;
+}
+
+#
+#	Main
+#
+# Stopping docker container prior to running backup
+[[ -n "$bContainer" ]] && \
+	{ echo -e "Stopping container $bContainer prior to backup job"; stopContainer "$bContainer"; }
+
+# Show backup task summary
+echo -e "Running new back-up with settings:"
+echo -e "Job Name: $bName\nBackup Directory: $bSource"
+echo -e "Backup Destination: $bHost@$bDestination\nKeeping $bKeepPrevious previous backups"
+[[ -n "$bContainer" ]] && echo -e "Using container: $bContainer"
+
+nfsMount || { echo -e "${er} Unable to mount backup directory"; exit 2; }	# Mount the remote filesystem
+
+# Create back-up archive filename - TODO: Let users specify format
+archiveName="$bName"-$(date +"%d%m%y").backup.tar
+
+# If file's been created in the same day, get more specific
+[ -a $bDestination/$archiveName ] && archiveName="$bName"-$(date +"%d%m%y-%H%M").backup.tar
+echo -e "Creating archive of '$bSource' with the filename '$archiveName'"
+
+# Switching working directory
+cd "$bSource" || { echo -e "${er} Unable to move into working directory"; exit 3; }
+
+case "$bTarType" in
+	'gzip')
+		tarFlag="z"
+		archiveName="$archiveName.gz"
+		;;
+	'bzip2')
+		tarFlag="I"
+		archiveName="$archiveName.bz2"
+		;;
+	*)
+		echo -e " Invalid or no zip-type passed - performing no compression as a result"
+		;;
+esac
+
+tar -c"$tarFlag"f "$archiveName" ./* || \
+	{ echo -e "${er} Unable to compress image ($archiveName)"; nfsUmount; exit 3; }
+echo -e "${gd} Successfully compressed file(s)!"
+
+nfsCopy || { echo -e "${er} NFS copy failed"; nfsUmount; exit 3; } # Copy arhive across
+
+# Restart docker container prior to running backup
+[[ -n $bContainer ]] && { echo -e "Restarting container $bContainer post-backup"; startContainer "$bContainer"; }
+
+nfsUmount || { echo -e "${er} NFS umount failed"; exit 3; } # Un-mount & clean-up mount point
+
+# Log successful back-up
+echo -e "${gd} Back-up completed successfully in $SECONDS seconds\n"

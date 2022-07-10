@@ -1,0 +1,147 @@
+#!/bin/bash
+# -------------------------------------------------
+#
+#     checkUpdate.bsh - Checks the local package
+#       manager for available updates, formats the
+#       output as needed for either logging or
+#       notifying (using notifyService.py)
+#
+#             Written: James Varoutsos
+#       Date: 19-Mar-2022        Version: 1.0
+#
+#   Notes:
+#       - Designed to be used with crond on a schedule
+#
+#	To-dos:
+#		- Logic clean-up
+#       - Add support for additional package managers
+#       - Work out templating + additional piping
+#
+# -------------------------------------------------
+
+source scriptFunctions || { echo -e "\033[1;31m[ERROR]\033[0m Cannot find shared functions file" return 1; }
+declare -i updatesCount=0
+declare -i debugOutput=0
+
+#
+# Query DNF (Centos/Rocky/Fedora)
+#
+function queryDnf {
+    updatesRaw=$(dnf list -q --upgrades)
+    if [ $? -ne 0 ]; then
+        echo -e "${er} Unable to run DNF update command"
+        return 1
+    fi
+    [[ $debugOutput ]] && echo -e "DNF update run successfully"
+
+    if [ -n "$updatesRaw" ]; then
+        parseDnf "$updatesRaw" || return 2
+    else
+        echo -e "${nt} No updates available"
+        return 3
+    fi
+
+    return 0
+}
+
+function parseDnf {
+    [[ $debugOutput ]] && echo -e "Parsing DNF output into CSV-parsable output"
+    updatesParsed=$(tail -n +2 <<< $1 | tr -s ' ')  # Remove cruft lines + trim whitespace
+    while read updatePkg; do
+        PkgName="$(echo ${updatePkg/%.*/} | cut -d ' ' -f1)"
+        cVersion="$(rpm -qa ${updatePkg/.*/} --queryformat '%{VERSION}-%{RELEASE}')"
+        nVersion="$(echo $updatePkg | cut -d ' ' -f2)"
+        provider="$(echo $updatePkg | cut -d ' ' -f3)"
+        ((updatesCount++))
+        echo "$PkgName,$provider,$cVersion,$nVersion"
+    done <<< "$updatesParsed"
+    echo "total,$updatesCount"  # Generate last line total
+    [[ $debugOutput ]] && echo -e "Output parsed successfully"
+}
+
+#
+#   Query APT (Debian/Ubuntu)
+#
+function queryApt {
+    echo -e "Querying updates"
+    updatesRaw=$(apt list -q --upgradable 2> /dev/null)
+    if [ $? -ne 0 ]; then
+        echo -e "${er} Unable to run APT update command"
+    fi
+
+    echo -e "APT update run successfully"
+
+    if [ -n "$updatesRaw" ]; then
+        parseApt "$updatesRaw" || return 2
+    else
+        echo -e "${nt} No updates available"
+        return 3
+    fi
+
+    return 0
+}
+
+function parseApt {
+    [[ $debugOutput ]] && echo -e "Parsing APT output into CSV-parsable output"
+    updatesParsed=$(tail -n +2 <<< $1 | tr -s ' ')
+    while read updatePkg; do
+        PkgName="$(sed 's/\/.*//g' <<< "$updatePkg")"
+        cVersion="$(echo "$updatePkg" | cut -d ' ' -f2)"
+        nVersion="$(echo "$updatePkg" | sed -e 's/^.*\[upgradable\sfrom\:\s//g' -e 's/\]$//g')"
+        provider="$(sed 's/.*\///g; s/\s.*$//g' <<< "$updatePkg")"
+        ((updatesCount++))
+        echo "$PkgName,$provider,$cVersion,$nVersion"
+    done <<< "$updatesParsed"
+        echo "total,$updatesCount"  # Generate last line total
+    [[ $debugOutput ]] && echo -e "Output parsed successfully"
+}
+
+#
+# Query APK (Alpine)
+#
+function queryApk {
+    echo -e "Querying updates"
+    updatesRaw=$(apk -u  list 2> /dev/null)
+    if [ $? -ne 0 ]; then
+        echo -e "${er} Unable to run APK update command"
+    fi
+
+    echo -e "APK update run successfully"
+
+    if [ -n "$updatesRaw" ]; then
+        parseApk "$updatesRaw" || return 2
+    else
+        echo -e "${nt} No updates available"
+        return 3
+    fi
+
+    return 0
+}
+
+function parseApk {
+    [[ $debugOutput ]] && echo -e "Parsing APK output into CSV-parsable output"
+    updatesParsed=$(tail -n +2 <<< $1 | tr -s ' ')  # Remove cruft lines + trim whitespace
+    while read updatePkg; do
+        PkgName="$(echo ${updatePkg/%-[0-9]*/} | cut -d ' ' -f1)"
+        cVersion="$(sed -e 's/^.*\[upgradable\sfrom\:\s.*[a-z]-//g' -e 's/\]$//g' <<< ${pkg})"
+        nVersion="sed -E 's/^.*([a-z]\-)//g' <<< ${pkg/ */})"
+        provider="$(echo $updatePkg | cut -d ' ' -f3)"
+        ((updatesCount++))
+        echo "$PkgName,$provider,$cVersion,$nVersion"
+    done <<< "$updatesParsed"
+    echo "total,$updatesCount"  # Generate last line total
+    [[ $debugOutput ]] && echo -e "Output parsed successfully"
+}
+
+if checkDistribution "centos|rocky"; then
+    #updatesCsv=$(queryDnf) || { echo "$updatesCsv"; exit $?; }
+    queryDnf
+elif checkDistribution "ubuntu"; then
+    # updatesCsv=$(queryApt) || { echo "$updatesCsv"; exit $?; }
+    queryApt
+elif checkDistribution "alpine"; then
+    # updatesCsv=$(queryApk) || { echo "$updatesCsv"; exit $?; }
+    queryApk
+else
+    echo -e "Distribution not found or unsupported"
+fi

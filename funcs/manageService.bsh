@@ -1,0 +1,70 @@
+#!/bin/bash
+# -------------------------------------------------
+#
+#   scriptFunctions - System-wide wrappers for both
+#   systemd and openrc service managers to standardize
+#   & simply operation of both
+#
+#           Written: James Varoutsos
+#   Date: 1-May-2022        Version: 1.0
+#
+#   1.0 - Initial
+#
+# -------------------------------------------------
+
+alias restartService="controlService restart"
+alias startService="controlService start"
+alias stopService="controlService stop"
+
+function controlService {
+    [[ -z $1 ]] && { echo -e "${er} No action given"; return 1; }
+    [[ -z $2 ]] && { echo -e "${er} No service given"; return 1; }
+
+    checkServiceExists "$1" || { echo -e "${er} Service '$1' does not exist"; return 2; }
+    grep -qvE 'start|stop|restart' <<< "$1" && { echo -e "${er} Unknown function '$1'"; return 1; }
+
+    if checkDistribution "alpine3"; then
+        # Non-systemd bliss
+        service "$2 $1" &> /dev/null || svcFail=$?
+    else
+        # systemd sadgeness
+        systemctl $1 "${2}.service" &> /dev/null || svcFail=$?
+    fi
+    [[ -n $svcFail ]] && { echo -e "${er} Service failed to ${1}"; printServiceLog "$1"; return 3; }
+    echo -e "${gd} ${1} operation ran on service ${2} successfully" && return 0
+}
+
+function enableService {
+    [[ -z $1 ]] && { echo -e "${er} No service given"; return 1; }
+
+    checkServiceExists "$1" || { echo -e "${er} Service '$1' does not exist"; return 2; }
+
+    if checkDistribution "alpine3"; then
+        rc-update -q add "${1}" &> /dev/null  || svcFail=$?
+    else
+        systemctl enable "${1}.service" &> /dev/null  || svcFail=$?
+    fi
+    [[ -n $svcFail ]] && { echo -e "${er} Cannot enable service '${2}'"; printServiceLog "$1"; return 3; }
+    echo -e "${gd} Service ${1} enabled" && return 0
+}
+
+function checkServiceExists {
+    srvPattern="enabled|disabled"
+    [[ -z "$1" ]] && { echo -e "${er} No service given"; return 1; }
+    if checkDistribution "alpine3"; then
+        service -q "${1}" describe &> /dev/null && return 0
+    else
+        systemctl list-unit-files "${1}".service | grep -E "$srvPattern" &> /dev/null && return 0
+    fi
+    return 1;
+}
+
+function printServiceLog {
+    jourLines=10
+    [[ $2 ]] && jourLines="$2"
+    if checkDistribution "alpine3"; then
+        tail -"${2}"l /var/log/messages
+    else
+        journalctl -eo short-iso --no-pager -n ${jourLines} -u "${1}"
+    fi
+}

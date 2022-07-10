@@ -1,0 +1,118 @@
+#!/bin/bash
+# -------------------------------------------------
+#
+#   discoverDevice.bsh - Performs some checks of
+#   the system to see what has been preinstalled
+#   what's currently configured.
+#
+#           Written: James Varoutsos
+#       Date: 20-Sep-2021        Version: 1.0
+#
+#   1.0 - Initial
+#
+#   Useage:
+#		buildInitial.bsh
+#
+# -------------------------------------------------
+
+export ifc="\033[1;33m"     # Information color
+export clc="\033[0m"        # Clear color
+
+# Load the standard buildFunctions
+source scriptFunctions || { echo -e "\033[1;31m[ERROR]\033[0m Cannot load buildFunctions"; exit 1; }
+checkDependency swapon curl dig || { echo -e "${er} Dependancies not met"; exit 1; }
+
+# CPU Details
+if command -v lscpu &> /dev/null; then
+    echo -e "${nt} CPU details" && lscpu | head -n -1  # The better method
+else
+    cat /proc/cpuinfo # The fallback method
+fi
+
+# Memory
+function memInfo { free -hm | tail -n +2 | grep ^"$1" | tr -s ' ' | cut -d ' ' -f "$2"; }
+
+# Swap Details
+if ! swapon --noheadings &> /dev/null; then
+    echo -e "${wn} No swap is currently active"
+else
+    echo -ne "${gd} Swap is active \033[1;33m$(memInfo Swap 3)\033[0m"
+    echo -ne " in use of \033[1;33m$(memInfo Swap 2)\033[0m at path ${ifc}"
+    swapon --noheadings | tail -n +1 | cut -d ' ' -f 1
+fi
+
+# RAM summary
+echo -ne "${nt} Device has \033[1;33m$(memInfo Mem 2)\033[0m total"
+echo -e " physical memory with \033[1;33m$(memInfo Mem 7)\033[0m free"
+
+# Storage check -- Rewrite the below
+# echo -e "${nt} Displaying physical drive locations" && lsblk -Sl
+# echo -e "${nt} Displaying drive & partition paths & mappings" && lsblk -p
+
+echo -e "${nt} Show fileystem capacities" && df -hx tmpfs -x devtmpfs
+
+# OS listing
+function infoDate { uptime -s | date +"${dfmt}"; }
+source /etc/os-release
+echo -ne "${nt} Running operating system \033[${ANSI_COLOR}m$PRETTY_NAME\033[0m"
+echo -e " and online since ${ifc}$(infoDate)${clc}"
+
+# Network checks
+function ipRoute { ip route show | head -n 1 | cut -d ' ' -f "$1"; }
+echo -e "${nt} Default route will use interface ${ifc}$(ipRoute 5)${clc} using address ${ifc}$(ipRoute 3)${clc}"
+checkDependency ifconfig && \
+    { echo -e "${nt} Listing all available network interfaces below"; ifconfig | head -n -1; }
+
+checkUrl="http://checkip.dyndns.com/"
+checkIp="1.1.1.1"
+
+if ping -c 5 "$checkIp" &> /dev/null; then  # Ping Test
+    dnsCheck="$(dig -x $checkIp +short)"
+    echo -e "${gd} Internet accessible, ICMP response from $checkIp"
+    if [ -z $dnsCheck ]; then   # DNS Test
+        echo -e "${er} DNS does not resolve (Queried: $checkIp)"
+    else
+        echo -e "${gd} DNS accessible, DNS resolved $checkIp ($dnsCheck)"
+        wanIP=$(curl -s $checkUrl | grep -oE "[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}")
+        wanZone=$(dig -x $wanIP +short | sed 's/.$//')
+        echo -e "${wn} WAN address \033[1;33m$wanIP ($wanZone)\033[0m"
+    fi
+else
+    echo -e "${er} No internet, No ICMP response from $checkIp"
+fi
+
+# Systemd resolvd warning / cautionary tale
+nameServ=$(grep nameserver /etc/resolv.conf | cut -d ' ' -f 2)
+if [ "$nameServ" == "127.0.0.53" ]; then
+    echo -e "${wn} Systemd resolvd is running"
+fi
+
+# Firewall status
+if ! checkDependency firewalld && command -v systemctl is-active firewalld &> /dev/null; then
+    echo -e "${wn} firewalld is inactive"
+    if command -v systemctl is-active iptables &> /dev/null; then
+        echo -e "${wn} Iptables is inactive - No active local firewall"
+    else
+        echo -e "${wn} Iptables is active - Displaying current ruleset"
+        # iptables
+    fi
+else
+    echo -e "${gd} firewalld is active - Displaying current ruleset"
+    # firewalld
+fi
+
+# SELinux check -- Needs to be cleaned up
+if checkDependency sestatus; then
+    seStatus="$(sestatus | sed -n '1p' | tr -s ' ' | cut -d ' ' -f 2)"
+    seMode="$(sestatus | sed -n '5p' | tr -s ' ' | cut -d ' ' -f 3)"
+
+    if [ "$seStatus" == "disabled" ]; then
+        echo -e "${wn} SELinux is currently disabled"
+    else
+        if [ "$seMode" == "enforcing" ]; then
+            echo -e "${gd} SELinux is active & in enforcing mode"
+        else
+            echo -e "${wn} SELinux is active but not enforcing"
+        fi
+    fi
+fi

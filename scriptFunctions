@@ -1,0 +1,198 @@
+#!/bin/bash
+# -------------------------------------------------
+#
+#   scriptFunctions - System-wide functions designed
+#   to be run from a script environment to shortcut
+#   and standardize a number of common scripting tasks
+#
+#           Written: James Varoutsos
+#   Date: 1-May-2022        Version: 0.0
+#
+#   1.0 - Initial
+#
+# -------------------------------------------------
+
+#
+#       Formatting & output functions
+# -------------------------------------------------
+# Output prefixes
+export cl="\033[0m"
+export er="\033[1;31m[ERROR]${cl}"
+export wn="\033[1;33m[WARNING]${cl}"
+export gd="\033[1;32m[GOOD]${cl}"
+export nt="\033[1;36m[NOTICE]${cl}"
+
+# Default date format
+# Note: This won't work where bash expansion doesn't occur ie. single-quotes(')
+export dfmt="%d/%m/%Y %I:%M%P"
+
+# Puts down dots (.) as an indicator of activity
+function indicateWaiting {
+	$@
+	ttPid=$!
+	ttSpin='-\|/'
+	tti=0
+	while kill -0 $ttPid 2> /dev/null; do
+		tti=$(( (tti+1) %4 ))
+		printf "\r${ttSpin:$ttPid:1}"
+		sleep .1
+	done
+}
+
+# Counts the amount of time taken for an activity
+function indicateTimeTaken {
+	echo "Blank"
+}
+
+#
+#		Includes
+# -------------------------------------------------
+sfd=$( cd "$(dirname "${BASH_SOURCE[0]}")" && pwd )
+
+# Management for systemctl "unit files"
+source ${sfd}/funcs/manageService.bsh || { echo -e "${wn} Unable to load services management module - Skipping"; }
+
+# Wrapper for DNF/APT (+ Other package managers I use in future)
+source ${sfd}/funcs/managePackage.bsh || { echo -e "${wn} Unable to load packages management module - Skipping"; }
+
+#
+#       OS/Distribution functions
+# -------------------------------------------------
+# Check the currently running *nix distrubition
+function checkDistribution {
+	source /etc/os-release;
+
+	# If an distro value has been passed in, check it!
+	if [ "$1" ]; then
+		# Rough front-end match because Ubuntu sucks the fat one
+		if [[ "$ID$VERSION_ID" =~ $1.* ]]; then
+			return 0;	# Matches
+		else
+			return 1;	# Doesn't match
+		fi
+	# Otherwise, just return the current ID + Version
+	else
+		echo "$ID$VERSION"
+		return 0
+	fi
+}
+alias checkDistro="checkDistribution"   # For compatibility
+
+# Check whether required applications are in PATH before trying to use them!
+function checkDependency {
+	for app in $@; do
+		if ! command -v "$app" &> /dev/null; then
+			echo -e "${er} Dependant app '$app' not found"
+			return 1
+		fi
+	done
+	return 0
+}
+alias checkDependencies="checkDependency"
+alias checkDepend="checkDependency"
+
+#
+#       Root / User functions
+# -------------------------------------------------
+# Test for root / user
+function testRoot {
+    [ "$(id -u)" != 0 ] && return 1 || return 0
+}
+
+# Enforce root / user - exit on fail
+function enforceRoot {
+	if [[ "$1" == "nosudo" ]]; then
+		[[ -n "$SUDO_USER" ]] && { echo -e "${er} Script cannot be ran as sudo"; exit; }
+	fi
+    [ "$(id -u)" != 0 ] && { echo -e "${er} Script needs to be run as root"; exit; }
+	return 0
+}
+
+function testUser {
+	[[ -z $1 ]] && { echo -e "${er} No username given"; return 1; }
+	[ -z $USER ] && USER="$(whoami)"	# Catches weird sudo edge-cases
+	if [ "$USER" != "$1" ]; then
+		echo -e "${er} Script not run as $USER"
+		return 2
+	else
+		return 0
+	fi
+}
+
+function enforceUser {
+	testUser $1 || exit
+}
+
+#
+#       File manipulation
+# -------------------------------------------------
+# Change a variable within a given file - useful for updating globals
+# $1: variable name - $2: variable value - $3: file
+function changeFileVariable {
+	[[ -r $3 ]] || { echo -e "${er} File $3 does not exist or is not writeable"; return 1; }
+	unset tkn	# Just in case a shell variable screws with the below logic
+
+	# Using perl-parsing method - No idea why PCRE doesn't work here
+	if grep -qP "^${1}\=\".*" ${3}; then	# Maintain double-quotes
+		tkn="\\\""	# Literal \" for sed parsing
+	elif grep -qP "^${1}\=\'.*" ${3}; then	# Maintain single-quotes
+		tkn="\\'"	# Literal \' for sed parsing
+	fi
+
+	sed -i "s/${1}\=.*/${1}\=${tkn}${2}${tkn}/" "$3" \
+		|| { echo -e "${er} Unable to update variable ${tkn}${2}${tkn} in file ${3}"; return 2; }
+	echo -e "${gd} Updated value ${1} to value ${tkn:1}${2}${tkn:1} in file ${3}"
+	return 0
+}
+
+# Detects whether a given line pattern has been commented (With a hash)
+#	& toggles comment syntax accordingly
+# $1: line-number|pattern - $2: file - $3: Comment syntax (Optional)
+function toggleLineComment {
+	echo "To be implemented"
+}
+
+# Add an executable script or file to a given user's sudo list
+# $1: command/file - $2: user ()
+function amendSudoList {
+	echo "To be done"
+}
+
+# Installs a functions file into all standard users directories (+ root)
+function addFuncsFile {
+	[[ -v "$1" ]] || { echo -e "${er} No funcs file given"; return 1; }
+	cp -rp "$1" /root || echo -e "${wn} Cannot add $1 to /root (Permissions?)";
+
+	for usr in $(ls /home -I lost+found); do
+		[[ ! -d "/home/$usr/shellfuncs" ]] || { echo -e "${wn} No shellfuncs directory in /home/$usr"; continue; }
+		cp -rp "$1" /home/"$usr"/shellfuncs || { echo -e "${wn} Unable to copy into /home/$usr"; continue; }
+		chown "$usr:$usr" /home/"$usr"/shellfuncs/"$(basename $1)"
+		echo -e "Copied successfully into /home/$usr"
+	done
+}
+
+# Appends to an existing functions file for all users (+ root)
+function appendFuncsFile {
+	[[ -v "$1" ]] || { echo -e "${er} No funcs file given"; return 1; }
+	[[ -v "$2" ]] || { echo -e "${er} No content given to append to $1"; return 2; }
+
+	echo -e "$2" >> "/root/$1" || echo -e "${wn} Cannot append to root funcs file (Permissions?)";
+
+	for usr in $(ls /home -I lost+found); do
+		[[ ! -f "/home/$usr/shellfuncs/$1" ]] || \
+			{ echo -e "${wn} $1 doesn't exist for '$usr' - Skipping"; continue; }
+		echo -e "$2" >> "/home/$usr/$1" || { echo -e "${wn} Cannot append for user '$usr' - Skipping"; continue; }
+		echo -e "Appended $1 successfully for user '$usr'"
+	done
+}
+
+# Removes all the superfluious git-related cruft in a given directory
+function cleanGitDir {
+	[[ -v "$1" ]] || { echo -e "${wn} No directory given to clean-up"; return 1; }
+	[[ ! -d "$1" ]] || { echo -e "${er} Given directory does not exist"; return 2; }
+
+	cd "$1" || { echo -e "${er} Cannot cd directory "; return 3; }
+	rm -rf .git README.md LICENSE.md .github Dockerfile .gitmodules
+	cd - &> /dev/null && echo -e "${gd} Git directory $1 successfully cleaned up"
+	return 0
+}
