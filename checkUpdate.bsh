@@ -122,12 +122,13 @@ function parseApk {
     [[ $debugOutput ]] && echo -e "Parsing APK output into CSV-parsable output"
     updatesParsed=$(tail -n +2 <<< $1 | tr -s ' ')  # Remove cruft lines + trim whitespace
     while read updatePkg; do
-        PkgName="$(echo ${updatePkg/%-[0-9]*/} | cut -d ' ' -f1)"
-        cVersion="$(sed -e 's/^.*\[upgradable\sfrom\:\s.*[a-z]-//g' -e 's/\]$//g' <<< ${pkg})"
-        nVersion="sed -E 's/^.*([a-z]\-)//g' <<< ${pkg/ */})"
-        provider="$(echo $updatePkg | cut -d ' ' -f3)"
+        #echo $updatePkg
+        pkgName="$(cut -d ' ' -f1 <<< "${updatePkg/%-[0-9]*/}")"
+        cVersion="$(grep -oP '(?<=upgradable\sfrom:\s).*(?=\])' <<< ${updatePkg})"
+        nVersion="$(cut -f 1 -d ' ' <<< ${updatePkg/ */})"
+        provider="$(apk policy $pkgName | tail -n -1 | grep -oP '(?<=\/)\w+?$')"
         ((updatesCount++))
-        echo "$PkgName,$provider,$cVersion,$nVersion"
+        echo "$pkgName,$provider,$cVersion,$nVersion"
     done <<< "$updatesParsed"
     echo "total,$updatesCount"  # Generate last line total
     [[ $debugOutput ]] && echo -e "Output parsed successfully"
