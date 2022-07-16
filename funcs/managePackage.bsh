@@ -53,16 +53,13 @@ function installPackage {
 	fi
 	return 0
 }
-alias installPackages="installPackage"
-alias instPkgs="installPackage"
-alias instPkg="installPackage"
 
 #
 # Multi-package, multi-distro removal
 #
 function removePackage {
 	enforceRoot		# Unit files are root-only
-	if checkDistro "centos|rocky"; then
+	if checkDistribution "centos|rocky"; then
 		for pkg in $@; do
 			# This really the most reliable test for package install -- What the fuck?
 			if echo "$(rpm -qa $pkg 2> /dev/null)" | grep -q "$pkg"; then
@@ -99,6 +96,3 @@ function removePackage {
 	fi
 	return 0
 }
-alias removePackages="removePackage"
-alias rmPkgs="removePackage"
-alias rmPkg="removePackage"
