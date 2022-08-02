@@ -76,7 +76,6 @@ function checkDistribution {
 		return 0
 	fi
 }
-alias checkDistro="checkDistribution"   # For compatibility
 
 # Check whether required applications are in PATH before trying to use them!
 function checkDependency {
@@ -88,8 +87,6 @@ function checkDependency {
 	done
 	return 0
 }
-alias checkDependencies="checkDependency"
-alias checkDepend="checkDependency"
 
 #
 #       Root / User functions
@@ -187,12 +184,33 @@ function appendFuncsFile {
 }
 
 # Removes all the superfluious git-related cruft in a given directory
-function cleanGitDir {
-	[[ -v "$1" ]] || { echo -e "${wn} No directory given to clean-up"; return 1; }
-	[[ ! -d "$1" ]] || { echo -e "${er} Given directory does not exist"; return 2; }
+function cloneCleanGit {
+	cloneDir="."
 
-	cd "$1" || { echo -e "${er} Cannot cd directory "; return 3; }
-	rm -rf .git README.md LICENSE.md .github Dockerfile .gitmodules
-	cd - &> /dev/null && echo -e "${gd} Git directory $1 successfully cleaned up"
+	[ -z ${1+x} ] && { echo -e "${er} No repository given"; return 1; }
+	[ -z ${2+x} ] && { echo -e "${nt} No directory given - cloning into current directory"; }
+
+	if [[ -d "$2" ]]; then
+		cloneDir="$2"
+	else
+		echo -e "${er} Directory given is invalid"
+		return 2
+	fi
+
+	git clone --quiet --recurse-submodules "$1" "$2" ||
+	cd $2 && echo -e "${gd} Repository cloned into $(pwd) successfully"
+
+	rm -rf .git README.md LICENSE.md .github Dockerfile .gitmodules || \
+		{ echo -e "${wn} Unable to clean-up directory"; return 3; }
+
+	echo -e "${gd} Git directory $1 successfully cleaned up"
 	return 0
+}
+
+# Reloads the entire nixtools directory from repository
+function reloadNixTools {
+	cd /usr/scripts && rm -rf backupDirectory.bsh checkUpdate.bsh discoverDevice.bsh \
+		notifyService.py scriptFunctions funcs/
+	cloneCleanGit "https://github.com/VJmes/nix-toolkit" . && echo -e "${gd} Latest nix-toolkit pulled down"
+	find /usr/scripts/ -type f -exec chmod 744 {} +
 }
