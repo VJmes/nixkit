@@ -26,34 +26,16 @@ export nt="\033[1;36m[NOTICE]${cl}"
 # Note: This won't work where bash expansion doesn't occur ie. single-quotes(')
 export dfmt="%d/%m/%Y %I:%M%P"
 
-# Puts down dots (.) as an indicator of activity
-function indicateWaiting {
-	$@
-	ttPid=$!
-	ttSpin='-\|/'
-	tti=0
-	while kill -0 $ttPid 2> /dev/null; do
-		tti=$(( (tti+1) %4 ))
-		printf "\r${ttSpin:$ttPid:1}"
-		sleep .1
-	done
-}
-
-# Counts the amount of time taken for an activity
-function indicateTimeTaken {
-	echo "Blank"
-}
-
 #
 #		Includes
 # -------------------------------------------------
 sfd=$( cd "$(dirname "${BASH_SOURCE[0]}")" && pwd )
 
 # Management for systemctl "unit files"
-source ${sfd}/funcs/manageService.bsh || { echo -e "${wn} Unable to load services management module - Skipping"; }
+source ${sfd}/functions/manageService.bsh || { echo -e "${wn} Unable to load services management module - Skipping"; }
 
 # Wrapper for DNF/APT (+ Other package managers I use in future)
-source ${sfd}/funcs/managePackage.bsh || { echo -e "${wn} Unable to load packages management module - Skipping"; }
+source ${sfd}/functions/managePackage.bsh || { echo -e "${wn} Unable to load packages management module - Skipping"; }
 
 #
 #       OS/Distribution functions

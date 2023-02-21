@@ -1,0 +1,75 @@
+#!/bin/bash
+# -------------------------------------------------
+#
+#     toggleWgIpMasq - Enable | disable IP address 
+#       masquerade on a given interface via iptables
+#
+#             Written: James Varoutsos
+#       Date: 20-Feb-2023        Version: 1.0
+#
+#   Notes:
+#       - Designed to be used with a wireguard interface
+#           configuration
+#
+#	To-dos:
+#		- Add check for existing matching rule (iptables -C)
+#
+#   Usage:
+#       toggleWgIpMasq.bsh enable|disable [interface]
+#
+# -------------------------------------------------
+
+export cl="\033[0m"
+export er="\033[1;31m[ERROR]${cl}"
+export wn="\033[1;33m[WARNING]${cl}"
+export gd="\033[1;32m[GOOD]${cl}"
+export nt="\033[1;36m[NOTICE]${cl}"
+
+# "Computers will never need more than 1 parameter" - B. Gates
+if [ "$1" ]; then
+    case "$(echo $1 | tr '[:upper:]' '[:lower:]')" in
+        enable|-e)    # Enable
+            export act="-A"
+            ;;
+        disable|-d)   # Disable
+            export act="-D"
+            ;;
+        --help|-h)      # Help
+            echo "toggleWgIpMasq.bsh enable | disable [interface]"
+            exit 0
+            ;;
+        *)
+            echo -e "${er} Unknown option '${1}'"
+            exit 1
+            ;;
+    esac
+else
+    echo -e "${er} No options provided"
+fi
+
+# Check IPtables exists locally
+[ ! command -v iptables &> /dev/null ] && { echo "${er} iptables not found"; exit 1; }
+
+# Check running as root
+[ "$(id -u)" != 0 ] && { echo -e "${er} Must be run as root"; exit 2; }
+
+# Validate interface & fetch default interface
+[ -z ${2+x} ] && { echo -e "${er} No interface specified"; exit 3; }
+dinf=$(ip route show default | cut -d ' ' -f 5)
+
+# Check if interface exists [Enable check if necessary]
+# grep -qwi ${2} /proc/net/dev || { echo -e "${er} Interface does not exist"; exit 4; }
+
+# IPv4 rules
+iptables ${act} FORWARD -i $2 -j ACCEPT; 
+iptables -t nat ${act} POSTROUTING -o ${dinf} -j MASQUERADE;
+
+[ $? -ne 0 ] && { echo -e "${er} Unable to update IPv4 rules"; exit 5; }
+
+# IPv6 rules
+ip6tables ${act} FORWARD -i $2 -j ACCEPT; 
+ip6tables -t nat ${act} POSTROUTING -o ${dinf} -j MASQUERADE;
+
+[ $? -ne 0 ] && { echo -e "${er} Unable to update IPv6 rules"; exit 6; }
+
+exit 0

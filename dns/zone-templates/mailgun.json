@@ -1,0 +1,6 @@
+[
+    {"subname": "notify", "type": "TXT", "ttl": 3600, "records": ["\"v=spf1 include:mailgun.org ~all\""]},
+    {"subname": "pic._domainkey.notify", "type": "TXT", "ttl": 3600, "records": ["\"k=rsa; p=MIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQDgHweoXeYgrJ0UyBx9+jcpNz2DbeZUdhKuCMgmrB6pvGsZjDHQEaD2ia0D7XUJaKPgDKNVTzuVw06eI9obytB0eA+K4LpX+B43fYr+1rzZMLVEjjEUwxD7d8lc6vOPU3YxHXodAhhafxgtMJLWP0x7zA3/vOXJQdLRGI557NPT3wIDAQAB\""]},
+    {"subname": "notify", "type": "MX", "ttl": 3600, "records": ["10 mxa.mailgun.org."]},
+    {"subname": "email.notify", "type": "CNAME", "ttl": 3600, "records": ["mailgun.org."]}
+]

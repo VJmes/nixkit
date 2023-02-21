@@ -1,0 +1,17 @@
+[
+    {"subname": "", "type": "MX", "ttl": 3600, "records": ["10 in1-smtp.messagingengine.com.", "20 in2-smtp.messagingengine.com."]},
+    {"subname": "", "type": "TXT", "ttl": 3600, "records": ["\"v=spf1 include:spf.messagingengine.com ?all\""]},
+    {"subname": "fm1._domainkey", "type": "CNAME", "ttl": 3600, "records": ["fm1.<<DOMAIN>>.dkim.fmhosted.com."]},
+    {"subname": "fm2._domainkey", "type": "CNAME", "ttl": 3600, "records": ["fm2.<<DOMAIN>>.dkim.fmhosted.com."]},
+    {"subname": "fm3._domainkey", "type": "CNAME", "ttl": 3600, "records": ["fm3.<<DOMAIN>>.dkim.fmhosted.com."]},
+    {"subname": "_submission._tcp", "type": "SRV", "ttl": 3600, "records": ["0 1 587 smtp.fastmail.com."]},
+    {"subname": "_imap._tcp", "type": "SRV", "ttl": 3600, "records": ["0 0 0 ."]},
+    {"subname": "_imaps._tcp", "type": "SRV", "ttl": 3600, "records": ["0 1 993 imap.fastmail.com."]},
+    {"subname": "_pop3._tcp", "type": "SRV", "ttl": 3600, "records": ["0 0 0 ."]},
+    {"subname": "_pop3s._tcp", "type": "SRV", "ttl": 3600, "records": ["10 1 995 pop.fastmail.com."]},
+    {"subname": "_jmap._tcp", "type": "SRV", "ttl": 3600, "records": ["0 1 443 jmap.fastmail.com."]},
+    {"subname": "_carddav._tcp", "type": "SRV", "ttl": 3600, "records": ["0 0 0 ."]},
+    {"subname": "_carddavs._tcp", "type": "SRV", "ttl": 3600, "records": ["0 1 443 carddav.fastmail.com."]},
+    {"subname": "_caldav._tcp", "type": "SRV", "ttl": 3600, "records": ["0 0 0 ."]},
+    {"subname": "_caldavs._tcp", "type": "SRV", "ttl": 3600, "records": ["0 1 443 caldav.fastmail.com."]}
+]

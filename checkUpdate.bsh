@@ -7,15 +7,13 @@
 #       notifying (using notifyService.py)
 #
 #             Written: James Varoutsos
-#       Date: 19-Mar-2022        Version: 1.0
+#       Date: 07-Feb-2023        Version: 1.1
 #
 #   Notes:
 #       - Designed to be used with crond on a schedule
 #
 #	To-dos:
-#		- Logic clean-up
-#       - Add support for additional package managers
-#       - Work out templating + additional piping
+#		- Make efficent (lmao)
 #
 # -------------------------------------------------
 
@@ -32,12 +30,12 @@ function queryDnf {
         echo -e "${er} Unable to run DNF update command"
         return 1
     fi
-    [[ $debugOutput ]] && echo -e "DNF update run successfully"
+    [[ $debugOutput ]] || echo -e "DNF update run successfully"
 
     if [ -n "$updatesRaw" ]; then
         parseDnf "$updatesRaw" || return 2
     else
-        echo -e "${nt} No updates available"
+        [[ $debugOutput ]] || echo -e "${nt} No updates available"
         return 3
     fi
 
@@ -45,7 +43,7 @@ function queryDnf {
 }
 
 function parseDnf {
-    [[ $debugOutput ]] && echo -e "Parsing DNF output into CSV-parsable output"
+    [[ $debugOutput ]] ||  echo -e "Parsing DNF output into CSV-parsable output"
     updatesParsed=$(tail -n +2 <<< $1 | tr -s ' ')  # Remove cruft lines + trim whitespace
     while read updatePkg; do
         PkgName="$(echo ${updatePkg/%.*/} | cut -d ' ' -f1)"
@@ -56,57 +54,18 @@ function parseDnf {
         echo "$PkgName,$provider,$cVersion,$nVersion"
     done <<< "$updatesParsed"
     echo "total,$updatesCount"  # Generate last line total
-    [[ $debugOutput ]] && echo -e "Output parsed successfully"
-}
-
-#
-#   Query APT (Debian/Ubuntu)
-#
-function queryApt {
-    echo -e "Querying updates"
-    updatesRaw=$(apt list -q --upgradable 2> /dev/null)
-    if [ $? -ne 0 ]; then
-        echo -e "${er} Unable to run APT update command"
-    fi
-
-    echo -e "APT update run successfully"
-
-    if [ -n "$updatesRaw" ]; then
-        parseApt "$updatesRaw" || return 2
-    else
-        echo -e "${nt} No updates available"
-        return 3
-    fi
-
-    return 0
-}
-
-function parseApt {
-    [[ $debugOutput ]] && echo -e "Parsing APT output into CSV-parsable output"
-    updatesParsed=$(tail -n +2 <<< $1 | tr -s ' ')
-    while read updatePkg; do
-        PkgName="$(sed 's/\/.*//g' <<< "$updatePkg")"
-        cVersion="$(echo "$updatePkg" | cut -d ' ' -f2)"
-        nVersion="$(echo "$updatePkg" | sed -e 's/^.*\[upgradable\sfrom\:\s//g' -e 's/\]$//g')"
-        provider="$(sed 's/.*\///g; s/\s.*$//g' <<< "$updatePkg")"
-        ((updatesCount++))
-        echo "$PkgName,$provider,$cVersion,$nVersion"
-    done <<< "$updatesParsed"
-        echo "total,$updatesCount"  # Generate last line total
-    [[ $debugOutput ]] && echo -e "Output parsed successfully"
+    [[ $debugOutput ]] || echo -e "Output parsed successfully"
 }
 
 #
 # Query APK (Alpine)
 #
 function queryApk {
-    echo -e "Querying updates"
-    updatesRaw=$(apk -u  list 2> /dev/null)
+    updatesRaw=$(apk -u list 2> /dev/null)
     if [ $? -ne 0 ]; then
         echo -e "${er} Unable to run APK update command"
     fi
-
-    echo -e "APK update run successfully"
+    [[ $debugOutput ]] || echo -e "APK update run successfully"
 
     if [ -n "$updatesRaw" ]; then
         parseApk "$updatesRaw" || return 2
@@ -119,27 +78,24 @@ function queryApk {
 }
 
 function parseApk {
-    [[ $debugOutput ]] && echo -e "Parsing APK output into CSV-parsable output"
+    [[ $debugOutput ]] || echo -e "Parsing APK output into CSV-parsable output"
     updatesParsed=$(tail -n +2 <<< $1 | tr -s ' ')  # Remove cruft lines + trim whitespace
     while read updatePkg; do
         #echo $updatePkg
         pkgName="$(cut -d ' ' -f1 <<< "${updatePkg/%-[0-9]*/}")"
-        cVersion="$(grep -oP '(?<=upgradable\sfrom:\s).*(?=\])' <<< ${updatePkg})"
-        nVersion="$(cut -f 1 -d ' ' <<< ${updatePkg/ */})"
+        cVersion="$(grep -oP '(?<=upgradable\sfrom:\s).*(?=\])' <<< ${updatePkg} | sed -e s/^${pkgName}\-//)"
+        nVersion="$(cut -f 1 -d ' ' <<< ${updatePkg/ */} | sed -e s/^${pkgName}\-//)"
         provider="$(apk policy $pkgName | tail -n -1 | grep -oP '(?<=\/)\w+?$')"
         ((updatesCount++))
         echo "$pkgName,$provider,$cVersion,$nVersion"
     done <<< "$updatesParsed"
     echo "total,$updatesCount"  # Generate last line total
-    [[ $debugOutput ]] && echo -e "Output parsed successfully"
+    [[ $debugOutput ]] || echo -e "Output parsed successfully"
 }
 
 if checkDistribution "centos|rocky"; then
     #updatesCsv=$(queryDnf) || { echo "$updatesCsv"; exit $?; }
     queryDnf
-elif checkDistribution "ubuntu"; then
-    # updatesCsv=$(queryApt) || { echo "$updatesCsv"; exit $?; }
-    queryApt
 elif checkDistribution "alpine"; then
     # updatesCsv=$(queryApk) || { echo "$updatesCsv"; exit $?; }
     queryApk
