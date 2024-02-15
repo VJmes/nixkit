@@ -1,24 +1,10 @@
 # Usr-Scripts
 
+⚠️ **<u>Please Note:</u>** This repository is ungoing clean-up & simplification as a second-tranche of scripts are finally bought under repository management.
+
 An assortment of Linux utilities built for specific needs over the years. This list is very much a work in progress and will be continually updated as old code is found, refactored & modernized (as needed) for inclusion here.
 
-**Note 1:** All the below is a work-in-progress
-
-**Note 2:** I only use Alpine & RockyOS (Less bad CentOS) - So everything below only targets those distributions
-
-**Note 3:** None of the below is production-ready code, only making it available in the off chance someone else finds it useful
-
-## / Utilities
-
-| Name                | Purpose                                                      |
-| ------------------- | ------------------------------------------------------------ |
-| ./functions         | A legacy library of bash macros for easy-of-use              |
-| ./wireguard         | Wireguard related tools & scripts                            |
-| ./dns               | DNS related tools & scripts                                  |
-| scriptFunctions     | A legacy callable library of frequently used bash macros     |
-| checkUpdate.bsh     | A distro-agnostic wrapper to check system updates & churn them into a CSV formatting for additional post-processing. |
-| backupDirectory.bsh | An NFS-specific backup utility (callable from crontab) to automate the backup of a given directory to external NFS server with automatic backup clean-up (Based on modified date). |
-| discoverSystem.bsh  | Performs system-level checks to determine the current hardware and operating system state. Designed to be run-post installation to determine local system capability. |
+**Note:** None of the below is production-ready code, only making it available in the off chance someone else finds it useful
 
 ### notifyService.py
 
@@ -42,13 +28,24 @@ options:
 
 ```
 
-#### Todo
+### pullTelegrafConf.bsh
 
-- [ ] Validate & add checks for importable & CLI operation (Only validated for CLI currently)
-- [ ] Add Twillo support
-- [ ] Add SNMP Trap support (Somehow)
-- [ ] Add HTTP POST support
-- [ ] Add Syslog support
+Pulls down a copy of a centrally managed Telegraf configuration from an InfluxDB instance and reloads the service. It does this by setting the service variables used by either **open-rc** or **systemd** (This may work in system V - I haven't tested it).
+
+This is designed to be a quick, dirty and simple (QDS) tool to enroll new endpoints and keep existing endpoints updated by way of a cronjob.
+
+#### Usage
+
+```
+usage: pullTelegrafConf.bsh [initial | initialize | first-run ]
+
+Pull down a Telegraf agent configuration from a centrally managed InfluxDB instance. 
+
+Options:
+	initial
+	initialize
+	first-run		Takes INFLUX_URL and INFLUX_TOKEN and sets them as  						usable service variables for systemd or open-rc
+```
 
 # ./dns/ Utilities
 
@@ -147,3 +144,6 @@ usage: toggleWgIpMasq.bsh enable | disable [interface]
 #### Todo
 
 - [ ] Add checking for existing rule before adding `iptables -C`
+
+
+

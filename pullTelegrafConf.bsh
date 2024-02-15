@@ -1,0 +1,71 @@
+#!/usr/bin/env bash
+# -------------------------------------------------
+#
+#   pullTelegrafConf.bsh - Pulls a telegraf-based configuration
+#       from a remote host and reloads the service.
+#
+#           Written: James Varoutsos
+#       Date: 15-Feb-2024        Version: 1.0
+#
+#   1.0 - Initial
+#
+#   Usage:
+#		pullTelegrafConf.bsh [initialize]
+#
+# -------------------------------------------------
+
+set -e  # Make idiomatic
+
+# Set up the initial service configuration
+if [ $# -eq 1 ]; then
+    [[ $# -gt 1 ]] || echo "Ignoring extra parameters"
+    case "${1,,}" in
+        "inital|initaize|first-time|first-build")
+            # Validate required configuration variables are in ENV
+            [[ -z "$INFLUX_TOKEN" ]] && { echo "No InfluxDB API Token defined"; exit 1; }
+            [[ -z "$INFLUX_URL" ]] && { echo "No InfluxDB endpoint defined"; exit 1; }
+            # Systemd-based service setting
+            if [ -f /etc/default/ ]; then
+                echo -e "INFLUX_URL=\"\$INFLUX_URL\"\nINFLUX_TOKEN=\"\$INFLUX_TOKEN\"\n" > /etc/default/telegraf
+                systemctl restart telegraf
+            # OpenRC-based service setting
+            elif [ -f /etc/conf.d/ ]; then
+                echo -e "export INFLUX_URL=\"\$INFLUX_URL\"\nexport INFLUX_TOKEN=\"\$INFLUX_TOKEN\"\n" > /etc/conf.d/telegraf
+                echo -e "TELEGRAF_OPTS=\"--config \$INFLUX_URL\"\n\nerror_logger=\"logger -t \$RC_SVCNAME\"" >> /etc/conf.d/telegraf
+                rc-service telegraf restart
+            else
+                echo "No location exists for telegraf OPTs"
+            fi    
+        ;;
+    *)
+        echo "Unsupported action '$1'"
+        exit 2
+    esac
+fi
+
+# Load service configuration into ENV
+SVRVAR_ERROR_MSG="Unable to load service settings from"     # klean kode
+if [ -f /etc/default/telegraf ]; then
+    source /etc/default/telegraf || { echo "$SVRVAR_ERROR_MSG /etc/default/telegraf"; exit 3; }     
+elif [ -f /etc/conf.d/telegraf ]; then
+    . /etc/conf.d/telegraf || { echo "$SVRVAR_ERROR_MSG /etc/conf./telegraf"; exit 3; }
+fi
+
+# Validate required configuration variables are in ENV
+[[ -z "$INFLUX_TOKEN" ]] && { echo "No InfluxDB API Token defined"; exit 1; }
+[[ -z "$INFLUX_URL" ]] && { echo "No InfluxDB endpoint defined"; exit 1; }
+
+TMP_DIR="/tmp/${HOSTNAME}-$(date +'%H%M%d%m%Y')-telegraf.conf"
+curl "$INFLUX_URL" --header "Authorization: Token $INFLUX_TOKEN" > ${TMP_DIR}
+
+# Check curl ran correctly and something resembling a configuration is in TMP_DIR
+if [ $? -eq 0 ] && grep -q '\[\[outputs.influxdb_v2\]\]' ${TMP_DIR}; then
+    # Copy configuration & reload service
+    if [ -f /etc/default/telegraf ]; then
+        \mv ${TMP_DIR} /etc/telegraf/telegraf.conf && systemctl restart telegraf
+    elif [ -f /etc/conf.d/telegraf ]; then
+        \mv ${TMP_DIR} /etc/telegraf.conf && rc-service telegraf restart
+    fi
+else
+    echo "Unable to pull telegraf configuration successfully"
+fi
