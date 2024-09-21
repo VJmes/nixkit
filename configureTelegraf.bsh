@@ -1,0 +1,115 @@
+#!/usr/bin/env bash
+# -------------------------------------------------
+#
+#   configureTelegraf.bsh - Dynamic management of 
+#       telegraf configuration for Linux hosts
+#
+#           Written: James Varoutsos
+#       Date: 21-Sep-2024        Version: 1.1
+#
+#   1.0 - Initial
+#   1.1 - Partial rewrite
+#
+#   Usage:
+#		pullTelegrafConf.bsh [initialize|reload|rebuild]
+#
+# -------------------------------------------------
+
+set -e  # Make idiomatic
+
+INFLUX_TOKEN=""
+INFLUX_URL=""
+
+function initializeTelegraf {
+    echo "[INFO] Initializing a new telegraf install"
+
+    # Check & query for the InfluxDB URL endpoint
+    if [ -z "$INFLUX_URL" ]; then
+        echo "[WARN] No InfluxDB URL has been set"
+        read -r -p "Provide a valid InfluxDB URL endpoint: " INFLUX_URL
+        [ -z "$INFLUX_URL" ] && { echo "[ERROR] No InfluxDB URL provided"; exit 2; }
+    fi
+    # Check & query for the InfluxDB API token
+    if [ -z "$INFLUX_TOKEN" ]; then
+        echo "[WARN] No InfluxDB API token has been set"
+        read -r -p "Provide a valid InfluxDB API token: " INFLUX_TOKEN
+        [ -z "$INFLUX_TOKEN" ] && { echo "[ERROR] No InfluxDB token provided"; exit 1; }
+    fi
+
+    # Systemd-based service setting
+    if type systemctl &> /dev/null; then
+        echo -e "INFLUX_URL=\"$INFLUX_URL\"\nINFLUX_TOKEN=\"$INFLUX_TOKEN\"\n" > /etc/default/telegraf
+    # OpenRC-based service setting
+    elif type rc-service &> /dev/null; then
+        echo -e "export INFLUX_URL=\"$INFLUX_URL\"\nexport INFLUX_TOKEN=\"$INFLUX_TOKEN\"\n" > /etc/conf.d/telegraf
+        echo -e "TELEGRAF_OPTS=\"--config $INFLUX_URL\"\n\nerror_logger=\"logger -t \$RC_SVCNAME\"" >> /etc/conf.d/telegraf
+    else
+        echo "[ERROR] Unsupported system"
+        exit 3
+    fi
+    pullTelegrafConf
+}
+
+function reloadTelegraf {
+    if [ -s /etc/default/telegraf ]; then
+        source /etc/default/telegraf || \
+            { echo "[ERROR] Unable to fetch conf from /etc/default/telegraf"; exit 7; }     
+    elif [ -s /etc/conf.d/telegraf ]; then
+        . /etc/conf.d/telegraf || \
+            { echo "[ERROR] Unable to fetch conf from /etc/conf.d/telegraf"; exit 7; }
+    else
+       echo "[ERROR] No valid Telegraf configuration found"; exit 7;
+    fi
+    pullTelegrafConf
+}
+
+function pullTelegrafConf {
+    type curl &> /dev/null || { echo "[ERROR] Curl not installed"; exit 5; }
+
+    # Double-check both required values are in env
+    [ -z "$INFLUX_TOKEN" ] && { echo "No InfluxDB API Token defined"; exit 1; }
+    [ -z "$INFLUX_URL" ] && { echo "No InfluxDB endpoint defined"; exit 1; }
+
+    TMP_DIR="/tmp/${HOSTNAME}-$(date +'%H%M%d%m%Y')-telegraf.conf"
+    curl "$INFLUX_URL" --header "Authorization: Token $INFLUX_TOKEN" > ${TMP_DIR} && \
+        { echo "[GOOD] Configuration downloaded successfully"; }
+
+    if type systemctl &> /dev/null; then
+        \mv ${TMP_DIR} /etc/telegraf/telegraf.conf && systemctl restart telegraf
+    elif type rc-service &> /dev/null; then
+        \mv ${TMP_DIR} /etc/telegraf.conf && rc-service telegraf restart
+    else
+        echo "[ERROR] Unsupported system"
+        exit 6
+    fi
+}
+
+# Set up the initial service configuration
+if [ $# -eq 1 ]; then
+    [ $# -gt 1 ] || echo "[WARN] Ignoring extra parameters"
+    case "${1,,}" in
+        initial|initialize)
+        initializeTelegraf  
+        ;;
+        reload|refresh)
+        reloadTelegraf
+        ;;
+        rebuild)
+        if type systemctl &> /dev/null; then
+            systemctl stop telegraf && rm -rf /etc/default/telegraf
+        elif type rc-service &> /dev/null; then
+            rc-service telegraf restart && rm -rf /etc/conf.d/telegraf
+        else
+            echo "[ERROR] Unsupported system"
+            exit 6
+        fi
+        initializeTelegraf
+        ;;
+        *)
+        echo "[ERROR] Unsupported action '$1'"
+        exit 2
+    esac
+else
+    echo "[NOTICE] Refreshing telegraf configuration"
+    reloadTelegraf
+fi
